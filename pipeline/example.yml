@@ -1,0 +1,71 @@
+
+resource_types:
+- name: twitter
+  type: docker-image
+  source:
+    repository: ecsteam/twitter-concourse-resource
+
+resources:
+- name: mux
+  type: git
+  source:
+    uri: https://github.com/gorilla/mux
+- name: tweet
+  type: twitter
+  source:
+    consumer_key: {{twitter-consumer-key}}
+    consumer_secret: {{twitter-consumer-secret}}
+    access_token: {{twitter-access-token}}
+    access_token_secret: {{twitter-access-token-secret}}
+
+jobs:
+- name: run-tests
+  plan:
+  - get: mux
+    trigger: true
+  - task: run-tests
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: golang
+      inputs:
+      - name: mux
+      outputs:
+      - name: hash
+      run:
+        path: /bin/bash
+        args:
+        - -c
+        - |
+          set -e
+          export GOPATH="$PWD/workspace"
+          export PATH="$GOPATH/bin:$PATH"
+
+          dst=workspace/src/github.com/gorilla/mux
+          mkdir -p "$dst"
+          cp -a mux/. "$dst"
+          pushd "$dst"
+            go test -race ./...
+            hash=$(git rev-parse @)
+          popd
+          echo $hash > hash/hash
+  - task: print-version
+    config:
+      platform: linux
+      image_resource:
+        type: docker-image
+        source:
+          repository: golang
+      inputs:
+      - name: hash
+      run:
+        path: /bin/bash
+        args:
+        - -c
+        - |
+          cat hash/hash
+  - put: tweet
+    params:
+      status: "tests-passed for mux (build ${BUILD_ID})"
